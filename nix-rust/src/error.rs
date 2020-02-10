@@ -69,8 +69,8 @@ impl fmt::Display for Error {
             #[cfg(unused)]
             Error::HttpError(err) => write!(f, "HTTP error: {}", err),
             #[cfg(not(test))]
-            Error::Foreign(_) => write!(f, "<C++ exception>"), // FIXME
-            Error::Misc(s) => write!(f, "{}", s),
+            Error::Foreign(exc) => exc.fmt(f),
+            Error::Misc(s) => s.fmt(f),
             Error::BadTarFileMemberName(s) => {
                 write!(f, "tar archive contains illegal file name '{}'", s)
             }
@@ -94,6 +94,18 @@ impl From<Error> for CppException {
 pub struct CppException(*const libc::c_void); // == std::exception_ptr*
 
 #[cfg(not(test))]
+impl fmt::Display for CppException {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg: Vec<u8> = unsafe {
+            let mut msg = Vec::with_capacity(message_size(self.0));
+            copy_error_message(self.0, msg.as_mut_ptr(), msg.capacity());
+            msg
+        };
+        write!(f, "C++ exception: {}", String::from_utf8_lossy(&msg))
+    }
+}
+
+#[cfg(not(test))]
 impl CppException {
     fn new(s: &str) -> Self {
         Self(unsafe { make_error(s) })
@@ -115,4 +127,8 @@ extern "C" {
     fn make_error(s: &str) -> *const libc::c_void;
 
     fn destroy_error(exc: *const libc::c_void);
+
+    fn message_size(exc: *const libc::c_void) -> libc::size_t;
+
+    fn copy_error_message(exc: *const libc::c_void, dest: *mut u8, dest_sz: libc::size_t);
 }
